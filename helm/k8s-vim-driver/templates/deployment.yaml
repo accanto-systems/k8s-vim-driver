@@ -1,0 +1,35 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: k8s-vim-driver
+spec:
+  replicas: {{ .Values.app.replicas }}
+  template:
+    metadata:
+      labels:
+        app: k8s-vim-driver
+    spec:
+      hostAliases:
+      {{- if .Values.app.config.kafka.hostEnabled }}
+        - ip: {{ .Values.app.config.kafka.ip }}
+          hostnames:
+          - {{ .Values.app.config.kafka.host }}
+      {{- end }}
+      containers:
+        - name: k8s-vim-driver
+          image: {{ .Values.docker.image }}:{{ .Values.docker.version }}
+          imagePullPolicy: {{ .Values.docker.imagePullPolicy }}
+          ports:
+          - containerPort: 8292
+            protocol: TCP
+          envFrom:
+          - configMapRef:
+              name: k8s-vim-driver-env
+          volumeMounts:
+          - name: config
+            mountPath: /var/k8svd/k8s_config.yml
+            subPath: k8s_config.yml
+      volumes:
+      - name: config
+        configMap:
+          name: k8s-vim-driver

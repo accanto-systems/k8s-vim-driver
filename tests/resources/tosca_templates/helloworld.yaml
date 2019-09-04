@@ -1,0 +1,91 @@
+tosca_definitions_version: tosca_simple_yaml_1_0
+
+description: Basic example to deploy a single VM
+
+# Custom type required to set "image" and "key_name" properties on Openstack Server.
+# This is a recommended workaround by Openstack (https://docs.openstack.org/heat-translator/latest/usage.html)
+node_types:
+  accanto.nodes.K8sCompute:
+    derived_from: tosca.nodes.Compute
+    properties:
+      name:
+        type: string
+      image:
+        type: string
+      container_port:
+        type: integer
+
+  accanto.nodes.K8sStorage:
+    derived_from: tosca.nodes.BlockStorage
+    properties:
+      name:
+        type: string
+      size:
+        type: integer
+      class:
+        type: string
+      hostpath:
+        type: string
+
+topology_template:
+  inputs:
+    name:
+      type: string
+      default: helloworld
+    image:
+      type: string
+      default: busybox:latest
+    container_port:
+      type: integer
+      default: 8080
+    storage_size:
+      type: integer
+      # in GB
+      default: 1
+    storage_class:
+      type: string
+      default: hostpath
+    storage_hostpath:
+      type: string
+
+  node_templates:
+    hello_world_server:
+      type: accanto.nodes.K8sCompute
+      capabilities:
+        host:
+          #Heat translator will try and find an Openstack "flavour" which matches the given properties
+          properties:
+            num_cpus: 2
+            disk_size: 10 GB
+            mem_size: 2 GB
+      properties:
+        name: { get_input: name }
+        image: { get_input: image }
+        container_port: { get_input: container_port }
+
+    hello_world_storage:
+      type: accanto.nodes.K8sStorage
+      properties:
+        name: { get_input: name }
+        size: { get_input: storage_size }
+        class: { get_input: storage_class }
+        hostpath: { get_input: storage_hostpath }
+    # Select existing Network named "private"
+    # private_network:
+    #   type: tosca.nodes.network.Network
+    #   properties:
+    #     network_name: private
+
+    # # Add the hello_world_server to the Network named "private"
+    # hello_world_server_port:
+    #   type: tosca.nodes.network.Port
+    #   requirements:
+    #     - binding:
+    #         node: hello_world_server
+    #     - link:
+    #         node: private_network
+
+  outputs:
+    hello_world_private_ip:
+      description: The private IP address of the hello_world_server
+      value: { get_attribute: [hello_world_server, private_address] }

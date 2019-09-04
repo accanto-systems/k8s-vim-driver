@@ -1,0 +1,11 @@
+---
+application:
+  port: 8292
+
+response_cache:
+  # in seconds
+  cache_expiry: 300
+  max_cache_capacity: 1000
+
+messaging:
+  connection_address: kafka:9092
