@@ -1,7 +1,7 @@
 ## Docker Image for the Openstack VIM Driver
 docker:
   ## Make this the full path, including registry host and port if using one
-  image: k8s-vim-driver
+  image: accanto/k8s-vim-driver
   version: 0.1.0
   imagePullPolicy: IfNotPresent
 
