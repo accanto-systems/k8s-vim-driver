@@ -1,5 +1,6 @@
-Create:
+## Create
 
+```
 {
   "deploymentLocation": {
     "name": "default",
@@ -18,9 +19,11 @@ Create:
   },
   "template": "tosca_definitions_version: tosca_simple_yaml_1_0\ndescription: Basic example to deploy a single VM\nnode_types:\n  accanto.nodes.K8sCompute:\n    derived_from: tosca.nodes.Compute\n    properties:\n      image:\n        type: string\n      container_port:\n        type: integer\n  accanto.nodes.K8sStorage:\n    derived_from: tosca.nodes.BlockStorage\n    properties:\n      size:\n        type: integer\n      class:\n        type: string\ntopology_template:\n  inputs:\n    image:\n      type: string\n      default: nginx:alpine\n    container_port:\n      type: integer\n      default: 80\n    storage_size:\n      type: integer\n      default: 1\n    storage_class:\n      type: string\n      default: microk8s-hostpath\n  node_templates:\n    hello-world-server:\n      type: accanto.nodes.K8sCompute\n      capabilities:\n        host:\n          properties:\n            num_cpus: 2\n            disk_size: 10 GB\n            mem_size: 2 GB\n      properties:\n        image: { get_input: image }\n        container_port: { get_input: container_port }\n      requirements:\n        - local_storage:\n            capability: tosca.capabilities.Attachment\n            node: hello-world-storage\n            relationship:\n              type: tosca.relationships.AttachesTo\n              properties:\n                location: /data\n    hello-world-storage:\n      type: accanto.nodes.K8sStorage\n      properties:\n        size: { get_input: storage_size }\n        class: { get_input: storage_class }\n  outputs:\n    hello_world_private_ip:\n      description: The private IP address of the hello-world-server\n      value: { get_attribute: [hello-world-server, private_address] }"
 }
+```
 
-Delete:
+## Delete
 
+```
 {
   "deploymentLocation": {
 "name": "default",
@@ -35,3 +38,4 @@ Delete:
   "infrastructureId": "6ba4b038a22d487894b0da4ac0896fd7",
   "requestId": "6ba4b038a22d487894b0da4ac0896fd7"
 }
+```
