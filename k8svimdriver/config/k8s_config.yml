@@ -1,6 +1,6 @@
 ---
 application:
-  port: 8292
+  port: 8294
 
 response_cache:
   # in seconds

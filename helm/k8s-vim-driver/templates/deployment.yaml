@@ -20,7 +20,7 @@ spec:
           image: {{ .Values.docker.image }}:{{ .Values.docker.version }}
           imagePullPolicy: {{ .Values.docker.imagePullPolicy }}
           ports:
-          - containerPort: 8292
+          - containerPort: 8294
             protocol: TCP
           envFrom:
           - configMapRef:

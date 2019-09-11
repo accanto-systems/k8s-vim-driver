@@ -13,4 +13,4 @@ spec:
       - path: /  # This is the url path used to access the service externally.
         backend:
          serviceName: k8s-vim-driver
-         servicePort: 8292
+         servicePort: 8294
