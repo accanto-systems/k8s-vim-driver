@@ -17,12 +17,12 @@ Note: `--editable` is added so live code changes in the osvimdriver package are 
 
 ## Configuration
 
-To customise the configuration of the driver, create a new `ald_config.yml` in the directory you intend to run the driver from. Add the properties you desire to this file, below shows an example of some of the properties you may choose to set:
+To customise the configuration of the driver, create a new `k8s_config.yml` in the directory you intend to run the driver from. Add the properties you desire to this file, below shows an example of some of the properties you may choose to set:
 
 ```
 # Set the port the driver runs on
 application:
-  port: 8293
+  port: 8294
 
 # Set the kafka address
 messaging:
@@ -36,7 +36,7 @@ This file will be found by the driver when it is started.
 The driver can be started with the simple command:
 
 ```
-ald-dev
+k8s-dev
 ```
 
 ## Start Production Server
@@ -48,7 +48,7 @@ To run the application in production you will need a WSGI HTTP Server. We have t
 Run the application by running the alm-gunicorn script:
 
 ```
-ald-gunicorn
+k8svd-gunicorn
 ```
 
 ### uWSGI
@@ -56,9 +56,9 @@ ald-gunicorn
 Run the application by running the ald-uwsgi script:
 
 ```
-ald-uwsgi
+k8svd-uwsgi
 ```
 
 # Access Swagger UI
 
-The Swagger UI can be found at `http://your_host:8293/api/lifecycle/ui` e.g. `http://localhost:8293/api/lifecycle/ui`
+The Swagger UI can be found at `http://your_host:8294/api/lifecycle/ui` e.g. `http://localhost:8294/api/lifecycle/ui`
