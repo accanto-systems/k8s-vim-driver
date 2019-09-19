@@ -7,8 +7,8 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-  - port: 8292
-    targetPort: 8292
+  - port: 8294
+    targetPort: 8294
 {{- if eq .Values.service.type "NodePort" }}
     nodePort: {{ .Values.service.nodePort }}
 {{- end }}

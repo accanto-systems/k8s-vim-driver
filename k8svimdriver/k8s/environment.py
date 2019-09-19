@@ -5,6 +5,7 @@ from kubernetes.client.rest import ApiException
 from k8svimdriver.service.cache import ResponseCache
 from ignition.model.infrastructure import InfrastructureTask
 from ignition.model.failure import FailureDetails, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_INFRASTRUCTURE_ERROR, FAILURE_CODE_UNKNOWN, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_RESOURCE_NOT_FOUND, FAILURE_CODE_RESOURCE_ALREADY_EXISTS
+from k8svimdriver.model.kubeconfig import KubeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -13,55 +14,32 @@ K8_USERNAME = 'k8s-username'
 K8_CERT_AUTH_DATA_PROP = 'certificate-authority-data'
 K8_CLIENT_CERT_DATA_PROP = 'client-certificate-data'
 K8_CLIENT_KEY_DATA_PROP = 'client-key-data'
-TOKEN_PROP = 'token'
+K8S_TOKEN_PROP = 'k8s-token'
+K8S_NAMESPACE = "k8s-namespace"
 REGISTRY_URI_PROP = 'registry_uri'
 
 class K8sDeploymentLocation():
-    def __init__(self, name, k8sServer, certificateAuthorityData, clientCertificateData, clientKeyData, username):
-        self.__name = name
-        if(k8sServer is None or k8sServer == ''):
-            raise ValueError("Deployment location config must contain k8sServer")
+    def __init__(self, deployment_location):
+        # def __init__(self, name, k8sServer, certificateAuthorityData, clientCertificateData, clientKeyData, username):
+        self.__name = deployment_location.get('name')
+        if self.__name is None:
+            raise ValueError('Deployment Location managed by the K8s VIM Driver must have a name')
+
+        dl_properties = deployment_location.get('properties', {})
+        if dl_properties is None:
+            raise ValueError('Deployment Location properties are missing')
+
+        k8sNamespace = dl_properties.get(K8S_NAMESPACE, None)
+        if k8sNamespace is None or k8sNamespace == '':
+            raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_NAMESPACE))
+        self.__k8sNamespace = k8sNamespace
+
+        k8sServer = dl_properties.get(K8S_SERVER_PROP, None)
+        if k8sServer is None or k8sServer == '':
+            raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_SERVER_PROP))
         self.__k8sServer = k8sServer
-        self.__certificateAuthorityData = certificateAuthorityData
-        self.__clientCertificateData = clientCertificateData
-        self.__clientKeyData = clientKeyData
-        self.__username = username
 
-        self.config = {
-            'apiVersion': 'v1',
-            'current-context': 'kubernetes-admin@kubernetes',
-            'kind': 'Config',
-            'preferences': {},
-            'clusters': [{
-                'name': 'kubernetes',
-                'cluster': {
-                    'server': self.__k8sServer,
-                    'certificate-authority-data': self.__certificateAuthorityData
-                    #'insecure-skip-tls-verify': True
-                }
-            }],
-            'contexts': [{
-                'name': 'kubernetes-admin@kubernetes',
-                'context': {
-                    'cluster': 'kubernetes',
-                    'user': 'kubernetes-admin'
-                }
-            }],
-            'users': [{
-                'name': 'kubernetes-admin',
-                'user': {
-                    # 'token': self.__token
-                    'client-certificate-data': self.__clientCertificateData,
-                    'client-key-data': self.__clientKeyData,
-                    'username': self.__username
-                }
-            }]
-        }
-
-        with open("/tmp/" + name, "w") as dl:
-            dl.write(yaml.dump(self.config))
-
-        config_file = "/tmp/" + name
+        config_file = self.createKubeConfig(deployment_location)
         self.k8s_client = config.new_client_from_config(config_file=config_file)
 
         self.watcher = watch.Watch()
@@ -76,6 +54,10 @@ class K8sDeploymentLocation():
         self.storage_watcher = threading.Thread(target=self.storage_watcher_worker, args=())
         self.storage_watcher.setDaemon(True)
         self.storage_watcher.start()
+
+    def createKubeConfig(self, deployment_location):
+      dl_properties = deployment_location['properties']
+      return KubeConfig(deployment_location['name'], dl_properties[K8S_SERVER_PROP], dl_properties[K8S_TOKEN_PROP]).write()
 
     def pod_watcher_worker(self):
         logger.debug('Monitoring pods')
@@ -111,7 +93,7 @@ class K8sDeploymentLocation():
         return self.responses.get_response(infrastructure_id)
 
     def namespace(self):
-        return self.__name
+        return self.__k8sNamespace
 
     def coreV1Api(self):
         return client.CoreV1Api(self.k8s_client)
@@ -119,11 +101,8 @@ class K8sDeploymentLocation():
     def create_infrastructure(self, infrastructure_id, k8s):
         try:
             logger.info('storage=' + str(k8s.get('storage')))
-            print('storage=' + str(k8s.get('storage')))
 
             for storage_name, storage in k8s.get('storage', {}).items():
-                print("1storage_name=" + storage_name)
-                print("1storage=" + str(storage))
                 storageSize = storage.get('size', None)
                 storageClassName = storage.get('storageClassName', None)
                 properties = {
@@ -132,9 +111,6 @@ class K8sDeploymentLocation():
                     properties['hostpath'] = storage.get('hostpath', None)
 
                 self.create_storage(storage_name, storageSize, storageClassName, infrastructure_id, properties)
-
-            logger.info('2pods=' + str(k8s.get('pods')))
-            print('2pods=' + str(k8s.get('pods')))
 
             # TODO mapping storageClassName to pods - just have one storage class?
             for pod in k8s.get('pods', []):
@@ -152,9 +128,6 @@ class K8sDeploymentLocation():
                 self.responses.update_response(InfrastructureTask(infrastructure_id, infrastructure_id, FAILURE_CODE_INTERNAL_ERROR, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
         except Exception as e:
             self.responses.update_response(InfrastructureTask(infrastructure_id, infrastructure_id, FAILURE_CODE_INTERNAL_ERROR, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
-        # except:
-        #     print("Unexpected error:"+str(sys.exc_info()[0]))
-        #     self.responses.update_response(InfrastructureTask(infrastructure_id, infrastructure_id, FAILURE_CODE_INTERNAL_ERROR, "Unexpected error:"+str(sys.exc_info()[0]), {}))
 
     # def create_pod_object(self, podName, image, container_port, infrastructure_id, storage_name, storageClassName):
     def create_pod_object(self, podName, image, container_port, infrastructure_id, storage):
@@ -163,27 +136,30 @@ class K8sDeploymentLocation():
         if(container_port is not None):
             ports.append(client.V1ContainerPort(container_port=container_port))
 
+        volumes = []
+        volumeMounts = []
         for s in storage:
-            volume = client.V1Volume(
+            volumes.append(client.V1Volume(
                 name=s["name"],
                 persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
                     claim_name=s["name"]
                 )
-            )
-            volume_mount = client.V1VolumeMount(
+            ))
+            volumeMounts.append(client.V1VolumeMount(
                 name=s["name"],
                 mount_path=s["mountPath"]
                 # other optional arguments, see the volume mount doc link below
-            )
+            ))
 
         container = client.V1Container(
             name=podName,
             image=image,
             ports=ports,
-            volume_mounts=[volume_mount])
+            volume_mounts=volumeMounts)
+
         spec = client.V1PodSpec(
             containers=[container],
-            volumes=[volume])
+            volumes=volumes)
         return client.V1Pod(
             api_version="v1",
             kind="Pod",
@@ -220,9 +196,9 @@ class K8sDeploymentLocation():
 
             logger.info("Persistent volume claim created. status='%s'" % str(api_response.status))
 
+        logger.info('Creating pod object')
         pod = self.create_pod_object(podName, image, container_port, infrastructure_id, storage)
-
-        print('pod='+str(pod))
+        logger.info("Namespace = " + self.namespace())
         logger.info("Creating pod %s" % str(pod))
 
         # Create pod
@@ -321,44 +297,13 @@ class K8sDeploymentLocationTranslator():
         self.dl_cache = DeploymentLocationCache()
 
     def from_deployment_location(self, deployment_location):
-        dl_name = deployment_location.get('name')
+        dl_name = deployment_location.get('name', None)
         if dl_name is None:
             raise ValueError('Deployment Location managed by the K8s VIM Driver must have a name')
 
         dl = self.dl_cache.get(dl_name)
         if dl is None:
-            dl_properties = deployment_location.get('properties', {})
-            k8sServer = dl_properties.get(K8S_SERVER_PROP, None)
-            if k8sServer is None:
-                raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_SERVER_PROP))
-            # token = dl_properties.get(TOKEN_PROP, None)
-            # if token is None:
-            #     raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(TOKEN_PROP))
-            # registryUri = dl_properties.get(REGISTRY_URI_PROP, None)
-
-            k8sUsername = dl_properties.get(K8_USERNAME, None)
-
-            if k8sUsername is None:
-                certificateAuthorityData = dl_properties.get(K8_CERT_AUTH_DATA_PROP, None)
-                if certificateAuthorityData is None:
-                    raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format('certificate-authority-data'))
-
-                clientCertificateData = dl_properties.get(K8_CLIENT_CERT_DATA_PROP, None)
-                if clientCertificateData is None:
-                    raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format('client-certificate-data'))
-
-                clientKeyData = dl_properties.get(K8_CLIENT_KEY_DATA_PROP, None)
-                if clientKeyData is None:
-                    raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format('client-key-data'))
-            else:
-                certificateAuthorityData = None
-                clientCertificateData = None
-                clientKeyData = None
-
-            # if k8sUsername is None and certificateAuthorityData is None and clientCertificateData is None and clientKeyData is None:
-            #     raise ValueError('Must specify k8s username or k8s certificate')
-
-            dl =  K8sDeploymentLocation(dl_name, k8sServer, certificateAuthorityData, clientCertificateData, clientKeyData, k8sUsername)
+            dl =  K8sDeploymentLocation(deployment_location)
             self.dl_cache.put(dl_name, dl)
 
         return dl

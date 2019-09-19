@@ -1,7 +1,7 @@
 FROM python:3.7-alpine
 
 ARG DRIVER_PORT
-ENV DRIVER_PORT ${DRIVER_PORT:-8292}
+ENV DRIVER_PORT ${DRIVER_PORT:-8294}
 ARG NUM_PROCESSES
 ENV NUM_PROCESSES ${NUM_PROCESSES:-4}
 ARG NUM_THREADS
@@ -33,6 +33,6 @@ RUN apk del .build-deps gcc musl-dev libffi-dev openssl-dev python3-dev make git
 USER k8svd
 WORKDIR /home/k8svd
 
-EXPOSE 8292
+EXPOSE 8294
 
 CMD ["k8svd"]
