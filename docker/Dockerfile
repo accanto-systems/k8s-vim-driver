@@ -12,7 +12,7 @@ ENV WSGI_CONTAINER ${WSGI_CONTAINER:-uwsgi}
 ENV PATH="/home/k8svd/.local/bin:${PATH}"
 
 RUN addgroup -S k8svd \
- && adduser -S k8svd -G k8svd \
+ && adduser -S k8svd -G k8svd -u 100 \
  && mkdir -p /var/k8svd \
  && chown -R k8svd:k8svd /var/k8svd \
  && apk add --no-cache bash \

@@ -1,11 +1,14 @@
 import uuid, yaml, json, sys, threading, logging
-from k8svimdriver.k8s.cache import K8sCache, DeploymentLocationCache
+from k8svimdriver.k8s.cache import DeploymentLocationCache
 from kubernetes import client, config, watch
 from kubernetes.client.rest import ApiException
-from k8svimdriver.service.cache import ResponseCache
 from ignition.model.infrastructure import InfrastructureTask
 from ignition.model.failure import FailureDetails, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_INFRASTRUCTURE_ERROR, FAILURE_CODE_UNKNOWN, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_RESOURCE_NOT_FOUND, FAILURE_CODE_RESOURCE_ALREADY_EXISTS
+from ignition.service.framework import Service, Capability, interface
+from ignition.service.logging import logging_context, LM_HTTP_HEADER_PREFIX, LM_HTTP_HEADER_TXNID, LM_HTTP_HEADER_PROCESS_ID
 from k8svimdriver.model.kubeconfig import KubeConfig
+from ignition.model.infrastructure import STATUS_IN_PROGRESS, STATUS_UNKNOWN, STATUS_FAILED, STATUS_COMPLETE, InfrastructureTask, CreateInfrastructureResponse
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +22,12 @@ K8S_NAMESPACE = "k8s-namespace"
 REGISTRY_URI_PROP = 'registry_uri'
 
 class K8sDeploymentLocation():
-    def __init__(self, deployment_location):
-        # def __init__(self, name, k8sServer, certificateAuthorityData, clientCertificateData, clientKeyData, username):
+    def __init__(self, deployment_location, k8s_properties, inf_messaging_service):
+        self.k8s_properties = k8s_properties
+        self.inf_messaging_service = inf_messaging_service
+
+        logger.debug('deployment location=' + str(deployment_location))
+
         self.__name = deployment_location.get('name')
         if self.__name is None:
             raise ValueError('Deployment Location managed by the K8s VIM Driver must have a name')
@@ -39,58 +46,86 @@ class K8sDeploymentLocation():
             raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_SERVER_PROP))
         self.__k8sServer = k8sServer
 
-        config_file = self.createKubeConfig(deployment_location)
-        self.k8s_client = config.new_client_from_config(config_file=config_file)
+        self.kubeconfig_file = self.createKubeConfig(deployment_location)
+        self.k8s_client = config.new_client_from_config(config_file=self.kubeconfig_file)
 
         self.watcher = watch.Watch()
-        self.k8s_cache = K8sCache()
 
-        self.responses = ResponseCache()
+        self.init_pod_watcher()
 
+    def createKubeConfig(self, deployment_location):
+      dl_properties = deployment_location['properties']
+      return KubeConfig(self.k8s_properties.tmpdir, deployment_location['name'], dl_properties[K8S_SERVER_PROP], dl_properties[K8S_TOKEN_PROP]).write()
+
+    def init_pod_watcher(self):
         self.pod_watcher = threading.Thread(target=self.pod_watcher_worker, args=())
         self.pod_watcher.setDaemon(True)
         self.pod_watcher.start()
 
-        self.storage_watcher = threading.Thread(target=self.storage_watcher_worker, args=())
-        self.storage_watcher.setDaemon(True)
-        self.storage_watcher.start()
-
-    def createKubeConfig(self, deployment_location):
-      dl_properties = deployment_location['properties']
-      return KubeConfig(deployment_location['name'], dl_properties[K8S_SERVER_PROP], dl_properties[K8S_TOKEN_PROP]).write()
-
     def pod_watcher_worker(self):
-        logger.debug('Monitoring pods')
-        for item in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, timeout_seconds=0):
-            pod = item['object']
+        try:
+            logger.info('Monitoring pods')
+            for item in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, timeout_seconds=0):
+                event_type = item['type']
+                pod = item['object']
 
-            # logger.info('pod event {0}'.format(item))
+                pod_name = pod.metadata.name
+                labels = pod.metadata.labels
+                infrastructure_id = labels.get('infrastructure_id', None)
+                if infrastructure_id is not None:
+                    logging_context.set_from_dict(labels)
+                    try:
+                        logger.debug('pod event {0}'.format(item))
 
-            pod_name = pod.metadata.name
-            labels = pod.metadata.labels
-            infrastructure_id = labels.get('infrastructure_id', None)
-            if infrastructure_id is not None:
-                self.responses.update_pod(infrastructure_id, item['type'], pod)
+                        outputs = {}
+                        # infrastructure_task
+                        phase = pod.status.phase
+                        podStatus = self.__build_pod_status(event_type, pod, outputs)
+                        request_type = 'CREATE'
+                        failure_details = None
+                        outputs = {
+                            "host": pod.metadata.name
+                        }
+
+                        if(phase is None):
+                            status = STATUS_UNKNOWN
+                        elif(phase in ['Pending']):
+                            container_statuses = pod.status.container_statuses
+                            if container_statuses is not None and len(container_statuses) > 0:
+                                waiting = container_statuses[0].state.waiting
+                                if(waiting is not None):
+                                    if(waiting.reason in ['ErrImagePull', 'ImagePullBackOff']):
+                                        status = STATUS_FAILED
+                                        failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, 'ErrImagePull')
+                                    else:
+                                        status = STATUS_IN_PROGRESS
+                                else:
+                                    status = STATUS_IN_PROGRESS
+                            else:
+                                status = STATUS_IN_PROGRESS
+                        elif(phase in ['Running']):
+                            status = STATUS_COMPLETE
+                        elif(phase in ['Failed']):
+                            status = STATUS_FAILED
+                            failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, podStatus.status_reason)
+                        else:
+                            status = STATUS_UNKNOWN
+
+                        if status in [STATUS_COMPLETE, STATUS_FAILED]:
+                            self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, status, failure_details, outputs))
+                            return True
+                    finally:
+                        logging_context.clear()
+        except Exception:
+            logger.exception("Unexpected exception watching pods")
+            self.init_pod_watcher()
 
     def storage_watcher_worker(self):
         logger.debug('Monitoring storage')
         for item in self.watcher.stream(self.coreV1Api().list_persistent_volume, timeout_seconds=0):
             storage = item['object']
 
-            # logger.info('storage event {0}'.format(item))
-
-            storage_name = storage.metadata.name
-            labels = storage.metadata.labels
-            if labels is not None:
-                infrastructure_id = labels.get('infrastructure_id', None)
-                if(infrastructure_id is not None):
-                    self.responses.update_storage(infrastructure_id, item['type'], storage)
-            else:
-                pass
-                # logger.info("Unable to find labels on storage %s" % str(storage))
-
-    def get_response(self, infrastructure_id):
-        return self.responses.get_response(infrastructure_id)
+            logger.debug('storage event {0}'.format(item))
 
     def namespace(self):
         return self.__k8sNamespace
@@ -98,7 +133,7 @@ class K8sDeploymentLocation():
     def coreV1Api(self):
         return client.CoreV1Api(self.k8s_client)
 
-    def create_infrastructure(self, infrastructure_id, k8s):
+    def create_infrastructure_impl(self, infrastructure_id, k8s):
         try:
             logger.info('storage=' + str(k8s.get('storage')))
 
@@ -119,34 +154,47 @@ class K8sDeploymentLocation():
                 container_port = pod.get('container_port', None)
                 # storage_name, storageClassName, storageSize
                 storage = pod.get('storage', [])
+                networks = pod.get('network', [])
                 logger.info('pod_name=' + pod_name)
-                self.create_pod(pod_name, image, container_port, infrastructure_id, storage)
+                self.create_pod(pod_name, image, container_port, infrastructure_id, storage, networks)
         except ApiException as e:
             if e.status == 409:
-                self.responses.update_response(InfrastructureTask(infrastructure_id, infrastructure_id, FAILURE_CODE_RESOURCE_ALREADY_EXISTS, None, {}))
+                logger.error('K8s exception1' + str(e))
+                self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, STATUS_FAILED, FailureDetails(FAILURE_CODE_RESOURCE_ALREADY_EXISTS, "Resource already exists"), {}))
             else:
-                self.responses.update_response(InfrastructureTask(infrastructure_id, infrastructure_id, FAILURE_CODE_INTERNAL_ERROR, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
+                logger.error('K8s exception2' + str(e))
+                self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, STATUS_FAILED, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
         except Exception as e:
-            self.responses.update_response(InfrastructureTask(infrastructure_id, infrastructure_id, FAILURE_CODE_INTERNAL_ERROR, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
+            logger.error('K8s exception2' + str(e))
+            self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, STATUS_FAILED, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
 
-    # def create_pod_object(self, podName, image, container_port, infrastructure_id, storage_name, storageClassName):
-    def create_pod_object(self, podName, image, container_port, infrastructure_id, storage):
+    def create_infrastructure(self, infrastructure_id, k8s):
+        worker = Thread(target=self.create_infrastructure_impl, args=(infrastructure_id, k8s,))
+        worker.setDaemon(True)
+        worker.start()
+
+        return CreateInfrastructureResponse(infrastructure_id, infrastructure_id)
+
+    def normalize_name(self, name):
+        return name.replace("_", "-")
+
+    def create_pod_object(self, podName, image, container_port, infrastructure_id, storage, networks):
         # Configure Pod template container
         ports = []
         if(container_port is not None):
-            ports.append(client.V1ContainerPort(container_port=container_port))
+            ports.append(client.V1ContainerPort(name="http", container_port=container_port, protocol="TCP"))
 
         volumes = []
         volumeMounts = []
         for s in storage:
             volumes.append(client.V1Volume(
-                name=s["name"],
+                name=self.normalize_name(s["name"]),
                 persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                    claim_name=s["name"]
+                    claim_name=self.normalize_name(s["name"])
                 )
             ))
             volumeMounts.append(client.V1VolumeMount(
-                name=s["name"],
+                name=self.normalize_name(s["name"]),
                 mount_path=s["mountPath"]
                 # other optional arguments, see the volume mount doc link below
             ))
@@ -154,24 +202,36 @@ class K8sDeploymentLocation():
         container = client.V1Container(
             name=podName,
             image=image,
+            image_pull_policy="IfNotPresent",
             ports=ports,
             volume_mounts=volumeMounts)
 
+        networks_as_string = ', '.join(list(map(lambda network: network['name'], networks)))
+        logger.info('pod networks: ' + str(networks_as_string))
         spec = client.V1PodSpec(
             containers=[container],
             volumes=volumes)
         return client.V1Pod(
             api_version="v1",
             kind="Pod",
-            metadata=client.V1ObjectMeta(name=podName, labels={"infrastructure_id": infrastructure_id}),
+            metadata=client.V1ObjectMeta(name=podName, labels={
+                "infrastructure_id": infrastructure_id,
+                LM_HTTP_HEADER_TXNID: logging_context.get(LM_HTTP_HEADER_TXNID, ""),
+                LM_HTTP_HEADER_PROCESS_ID: logging_context.get(LM_HTTP_HEADER_PROCESS_ID, "")
+            },
+            annotations={
+                "k8s.v1.cni.cncf.io/networks": networks_as_string,
+            }),
             spec=spec)
 
-    # storage_name, storageClassName, storageCapacity
-    def create_pod(self, podName, image, container_port, infrastructure_id, storage):
+    def create_pod(self, podName, image, container_port, infrastructure_id, storage, networks):
         logger.info("pod storage="+str(storage))
         for s in storage:
             claimObject = client.V1PersistentVolumeClaim(
-                metadata=client.V1ObjectMeta(name=s["name"], labels={"infrastructure_id": infrastructure_id}),
+                metadata=client.V1ObjectMeta(
+                    namespace="default",
+                    name=self.normalize_name(s["name"]),
+                    labels={"infrastructure_id": infrastructure_id}),
                 spec=client.V1PersistentVolumeClaimSpec(
                     access_modes=["ReadWriteOnce"],
                     resources=client.V1ResourceRequirements(
@@ -197,7 +257,7 @@ class K8sDeploymentLocation():
             logger.info("Persistent volume claim created. status='%s'" % str(api_response.status))
 
         logger.info('Creating pod object')
-        pod = self.create_pod_object(podName, image, container_port, infrastructure_id, storage)
+        pod = self.create_pod_object(podName, image, container_port, infrastructure_id, storage, networks)
         logger.info("Namespace = " + self.namespace())
         logger.info("Creating pod %s" % str(pod))
 
@@ -210,11 +270,100 @@ class K8sDeploymentLocation():
 
         return api_response
 
-    def delete_infrastructure(self, infrastructure_id):
-        # response = self.get_response(infrastructure_id)
-        # pods = response['pods']
-        # [self.delete_pod(infrastructure_id) for pod in pods]
+    def __build_pod_status(self, request_type, pod, outputs):
+        phase = pod.status.phase
+        status_reason = None
+        status = STATUS_UNKNOWN
 
+        logger.debug('__build_pod_status {0} {1}'.format(request_type, pod))
+
+        # if request_type == 'CREATE':
+        if(phase is None):
+            status = STATUS_UNKNOWN
+        elif(phase in ['Pending']):
+            container_statuses = pod.status.container_statuses
+            if container_statuses is not None and len(container_statuses) > 0:
+                waiting = container_statuses[0].state.waiting
+                if(waiting is not None):
+                    if(waiting.reason == 'ErrImagePull'):
+                        status = STATUS_FAILED
+                        status_reason = 'ErrImagePull'
+                    else:
+                        status = STATUS_IN_PROGRESS
+                else:
+                    status = STATUS_IN_PROGRESS
+            else:
+                status = STATUS_IN_PROGRESS
+        elif(phase in ['Running']):
+            status = STATUS_COMPLETE
+        elif(phase in ['Failed']):
+            status = STATUS_FAILED
+        else:
+            status = STATUS_UNKNOWN
+        return {
+          'status': status,
+          'status_reason': status_reason
+        }
+
+    def __build_pvc_status(self, request_type, pvc, outputs):
+        phase = pvc.status.phase
+        status_reason = None
+        status = STATUS_UNKNOWN
+
+        logger.debug('__build_pvc_status {0} {1}'.format(request_type, pvc))
+
+        if(phase is None):
+            status = STATUS_UNKNOWN
+        elif(phase == 'Failed'):
+            status = STATUS_FAILED
+        elif(phase == 'Bound'):
+            status = STATUS_COMPLETE
+        elif(phase == 'Available'):
+            # TODO check this
+            status = STATUS_IN_PROGRESS
+        else:
+            status = STATUS_UNKNOWN
+
+        return {
+          'status': status,
+          'status_reason': status_reason
+        }
+
+    def get_infrastructure(self, infrastructure_id, request_type):
+        outputs = {}
+
+        statuses = []
+        statuses.append(list(map(lambda pod: self.__build_pod_status(request_type, pod, outputs), self.coreV1Api().list_namespaced_pod(namespace=self.namespace(), label_selector='infrastructure_id={}'.format(infrastructure_id)))))
+        statuses.append(list(map(lambda pvc: self.__build_pvc_status(request_type, pvc, outputs), self.coreV1Api().list_namespaced_persistent_volume_claim(namespace=self.namespace(), label_selector='infrastructure_id={}'.format(infrastructure_id)))))
+
+        failure_details = None
+        status = STATUS_COMPLETE
+
+        if request_type == 'CREATE':
+            failed = list(filter(lambda x: x['status'] == STATUS_FAILED, statuses))
+            if len(failed) > 0:
+                status = STATUS_FAILED
+                failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, failed[0].status_reason)
+
+            in_progress = list(filter(lambda x: x['status'] == STATUS_IN_PROGRESS, statuses))
+            if len(in_progress) > 0:
+                status = STATUS_IN_PROGRESS
+
+            return InfrastructureTask(infrastructure_id, infrastructure_id, status, failure_details, outputs)
+        elif request_type == 'DELETE':
+            failed = list(filter(lambda x: x['status'] == STATUS_FAILED, statuses))
+            in_progress = list(filter(lambda x: x['status'] == STATUS_IN_PROGRESS, statuses))
+            if len(failed) > 0:
+                status = STATUS_FAILED
+                failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, failed[0].status_reason)
+            elif len(in_progress) > 0 or len(statuses) > 0:
+                status = STATUS_IN_PROGRESS
+
+            return InfrastructureTask(infrastructure_id, infrastructure_id, status, failure_details, outputs)
+        else:
+            raise ValueError("Invalud request_type {0}".format(request_type)) 
+
+    def delete_infrastructure(self, infrastructure_id):
         self.delete_pod_with_infrastructure_id(infrastructure_id)
         self.delete_storage_with_infrastructure_id(infrastructure_id)
 
@@ -227,18 +376,6 @@ class K8sDeploymentLocation():
 
     def delete_pod(self, name):
         api_response = self.coreV1Api().delete_namespaced_pod(namespace=self.namespace(), name=name)
-
-    def get_pod(self, infrastructure_id):
-        pod = self.k8s_cache.getPod(infrastructure_id)
-        if(pod is None):
-            pod_list = self.coreV1Api().list_namespaced_pod(namespace=self.namespace(), label_selector='infrastructure_id={}'.format(infrastructure_id))
-            if(len(pod_list.items)) > 0:
-                name = pod_list.items[0].metadata.name
-                pod = self.coreV1Api().read_namespaced_pod(namespace=self.namespace(), name=name)
-            else:
-                pod = None
-
-        return pod
 
     # capacity: 1Gb
     def create_storage(self, name, capacity, storageClassName, infrastructure_id, properties):
@@ -286,15 +423,24 @@ class K8sDeploymentLocation():
     def delete_storage_with_infrastructure_id(self, infrastructure_id):
         v1 = self.coreV1Api()
         storage_list = v1.list_namespaced_persistent_volume_claim(namespace=self.namespace(), label_selector='infrastructure_id={}'.format(infrastructure_id))
-        for storage in storage_list:
+        for storage in storage_list.items:
             api_response = v1.delete_namespaced_persistent_volume_claim(namespace=self.namespace(), name=storage.metadata.name)
 
     def delete_storage(self, name):
         api_response = self.coreV1Api().delete_persistent_volume(name=name)
 
-class K8sDeploymentLocationTranslator():
-    def __init__(self):
+class DeploymentLocationTranslatorCapability(Capability):
+    @interface
+    def from_deployment_location(self, deployment_location):
+        pass
+
+class K8sDeploymentLocationTranslator(Service, DeploymentLocationTranslatorCapability):
+    def __init__(self, k8s_properties, **kwargs):
         self.dl_cache = DeploymentLocationCache()
+        self.k8s_properties = k8s_properties
+        if 'inf_messaging_service' not in kwargs:
+            raise ValueError('inf_messaging_service argument not provided')
+        self.inf_messaging_service = kwargs.get('inf_messaging_service')
 
     def from_deployment_location(self, deployment_location):
         dl_name = deployment_location.get('name', None)
@@ -303,7 +449,7 @@ class K8sDeploymentLocationTranslator():
 
         dl = self.dl_cache.get(dl_name)
         if dl is None:
-            dl =  K8sDeploymentLocation(deployment_location)
+            dl = K8sDeploymentLocation(deployment_location, self.k8s_properties, self.inf_messaging_service)
             self.dl_cache.put(dl_name, dl)
 
         return dl

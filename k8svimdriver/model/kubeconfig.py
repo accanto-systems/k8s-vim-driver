@@ -1,18 +1,16 @@
 import yaml
 
-# class KubeCluster():
-#     def __init__(self, server):
-#         self.insecure-skip-tls-verify = 'true'
-#         self.server = server
-        
 class KubeConfig():
-    def __init__(self, name, k8sServer, k8sToken):
+    def __init__(self, tmppath, name, k8sServer, k8sToken):
+        self.tmppath = tmppath
         self.name = name
+        # construct kubeconfig file from deployment location properties
         self.kubeConfig = {
             "apiVersion": "v1",
             "clusters": [{
                 "name": "mycluster",
                 "cluster": {
+                    # TODO assume insecure for now
                     "insecure-skip-tls-verify": True,
                     "server": k8sServer
                 }
@@ -36,8 +34,7 @@ class KubeConfig():
         }
 
     def write(self):
-        filename = '/var/k8svd/dl_' + self.name + '.yml'
-        # filename = './dl_' + self.name + '.yml'
+        filename = self.tmppath + '/dl_' + self.name + '.yml'
         with open(filename, 'w') as outfile:
             yaml.dump(self.kubeConfig, outfile, default_flow_style=False)
         return filename

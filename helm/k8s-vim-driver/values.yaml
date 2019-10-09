@@ -51,6 +51,13 @@ app:
       messaging:
         # Kafka connection url
         connection_address: foundation-kafka:9092
+      jobqueue:
+        replication_factor: 1
+        num_partitions: 1
+        config:
+          # 1 day
+          retention_ms: 86400000
+          file_delete_delay_ms: 86400000
 
 service:
   # Using NodePort allows access to the IPs through http://k8s-host:nodePort/
