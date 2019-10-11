@@ -24,13 +24,13 @@ class K8sInfrastructureService(Service, InfrastructureDriverCapability):
         :param dict deployment_location: the valid Openstack location to deploy to
         :return: the id of Infrastructure to be created
         """
-        k8s = self.tosca_translator.generate_k8s(template, inputs)
+        infrastructure_id = uuid.uuid4().hex
+
+        k8s = self.tosca_translator.generate_k8s(infrastructure_id, template, inputs)
 
         logger.debug('k8s = {0}'.format(k8s))
 
         k8s_location = self.location_translator.from_deployment_location(deployment_location)
-
-        infrastructure_id = uuid.uuid4().hex
 
         return k8s_location.create_infrastructure(infrastructure_id, k8s)
 

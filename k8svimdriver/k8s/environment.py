@@ -65,7 +65,7 @@ class K8sDeploymentLocation():
     def pod_watcher_worker(self):
         try:
             logger.info('Monitoring pods')
-            for item in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, timeout_seconds=0):
+            for item in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, timeout_seconds=5):
                 event_type = item['type']
                 pod = item['object']
 
@@ -75,10 +75,9 @@ class K8sDeploymentLocation():
                 if infrastructure_id is not None:
                     logging_context.set_from_dict(labels)
                     try:
-                        logger.debug('pod event {0}'.format(item))
+                        logger.debug('Got pod event {0}'.format(item))
 
                         outputs = {}
-                        # infrastructure_task
                         phase = pod.status.phase
                         podStatus = self.__build_pod_status(event_type, pod, outputs)
                         request_type = 'CREATE'
@@ -112,7 +111,39 @@ class K8sDeploymentLocation():
                             status = STATUS_UNKNOWN
 
                         if status in [STATUS_COMPLETE, STATUS_FAILED]:
-                            self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, status, failure_details, outputs))
+                            if status == STATUS_COMPLETE:
+                                try:
+                                    # try to find the ConfigMap that contains information on output property mappings
+                                    cm = self.coreV1Api().read_namespaced_config_map(infrastructure_id, self.namespace())
+                                    logger.info("Got ConfigMap {0} for infrastructure_id {1}".format(str(cm), infrastructure_id))
+                                    if cm is not None:
+                                        for output_prop_name, k8s_key in cm.data.items():
+                                            logger.info("Output: {0}={1}".format(output_prop_name, k8s_key))
+                                            if k8s_key.startswith('network.'):
+                                                k8s_prop_name = k8s_key[len('network.'):]
+                                                logger.info("k8s_prop_name: {0}".format(k8s_prop_name))
+
+                                            annotations = pod.metadata.annotations
+                                            networks_status_str = annotations.get('k8s.v1.cni.cncf.io/networks-status', None)
+                                            logger.info('networks_status_str: {0}'.format(str(networks_status_str)))
+                                            if networks_status_str is not None:
+                                                networks_status = json.loads(networks_status_str)
+                                                for network_status in networks_status:
+                                                    net_name = network_status.get('name', None)
+                                                    net_ips = network_status.get('ips', {})
+                                                    logger.info('net_name {0}, net_ips {1}'.format(net_name, str(net_ips)))
+                                                    if net_name is not None and len(net_ips) > 0:
+                                                        if net_name == k8s_prop_name:
+                                                            outputs[output_prop_name] = net_ips[0]
+                                except ApiException as e:
+                                    # ok
+                                    if e.status == 404:
+                                        logger.info("Unable to find cm for infrastructure id {0}".format(infrastructure_id))
+
+                            inf_task = InfrastructureTask(infrastructure_id, infrastructure_id, status, failure_details, outputs)
+                            logger.info('Sending infrastructure response {0}'.format(str(inf_task)))
+
+                            self.inf_messaging_service.send_infrastructure_task(inf_task)
                             return True
                     finally:
                         logging_context.clear()
@@ -157,6 +188,8 @@ class K8sDeploymentLocation():
                 networks = pod.get('network', [])
                 logger.info('pod_name=' + pod_name)
                 self.create_pod(pod_name, image, container_port, infrastructure_id, storage, networks)
+
+            self.create_config_map_for_outputs(pod_name, infrastructure_id, k8s.get('outputs', {}))
         except ApiException as e:
             if e.status == 409:
                 logger.error('K8s exception1' + str(e))
@@ -167,6 +200,22 @@ class K8sDeploymentLocation():
         except Exception as e:
             logger.error('K8s exception2' + str(e))
             self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, STATUS_FAILED, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
+
+    def create_config_map_for_outputs(self, pod_name, infrastructure_id, outputs):
+        logger.info("output = {0}".format(str(outputs)))
+        logger.info("output type = {0}".format(str(type(outputs))))
+        api_response = self.coreV1Api().create_namespaced_config_map(namespace=self.namespace(), body=client.V1ConfigMap(api_version="v1",
+            kind="ConfigMap",
+            metadata=client.V1ObjectMeta(
+                namespace=self.namespace(),
+                name=infrastructure_id,
+                labels={"infrastructure_id": infrastructure_id}),
+            data=outputs)
+        )
+
+        # TODO handle api_response
+
+        logger.info("Config Map created. status='%s'" % str(api_response))
 
     def create_infrastructure(self, infrastructure_id, k8s):
         worker = Thread(target=self.create_infrastructure_impl, args=(infrastructure_id, k8s,))
@@ -229,7 +278,7 @@ class K8sDeploymentLocation():
         for s in storage:
             claimObject = client.V1PersistentVolumeClaim(
                 metadata=client.V1ObjectMeta(
-                    namespace="default",
+                    namespace=self.namespace(),
                     name=self.normalize_name(s["name"]),
                     labels={"infrastructure_id": infrastructure_id}),
                 spec=client.V1PersistentVolumeClaimSpec(
@@ -275,7 +324,7 @@ class K8sDeploymentLocation():
         status_reason = None
         status = STATUS_UNKNOWN
 
-        logger.debug('__build_pod_status {0} {1}'.format(request_type, pod))
+        # logger.debug('__build_pod_status {0} {1}'.format(request_type, pod))
 
         # if request_type == 'CREATE':
         if(phase is None):
@@ -370,8 +419,10 @@ class K8sDeploymentLocation():
     def delete_pod_with_infrastructure_id(self, infrastructure_id):
         v1 = self.coreV1Api()
         pod_list = v1.list_namespaced_pod(namespace=self.namespace(), label_selector='infrastructure_id={}'.format(infrastructure_id))
+        logger.info('delete_pod_with_infrastructure_id {0}'.format(str(pod_list)))
         if(len(pod_list.items)) > 0:
             name = pod_list.items[0].metadata.name
+            logger.info('Deleting pod with name {0} in namespace {1}'.format(name, self.namespace()))
             v1.delete_namespaced_pod(namespace=self.namespace(), name=name)
 
     def delete_pod(self, name):

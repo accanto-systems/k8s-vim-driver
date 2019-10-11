@@ -1,7 +1,7 @@
 from cachetools import cached, TTLCache  # 1 - let's import the "cached" decorator and the "TTLCache" object from cachetools
 from common_cache import Cache
 
-# this is more like a 
+# TODO replace this with a proper cache
 class DeploymentLocationCache(object):
 
     def __init__(self):
