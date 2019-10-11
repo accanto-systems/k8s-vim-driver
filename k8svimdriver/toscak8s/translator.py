@@ -71,14 +71,18 @@ class ToscaK8sTranslator():
             if(node_type == 'accanto.nodes.K8sStorage'):
                 props = node_template.get_properties()
                 k8s['storage'][node_template.name] = {
-                    'name': self.normalize_name(resource_name + '_' + node_template.name),
+                    'name': self.normalize_name(node_template.name + '_' + resource_name),
                     'size': self.get_prop_value(props, 'size'),
                     'storageClassName': self.get_prop_value(props, 'class')
                 }
             elif(node_type == 'accanto.nodes.K8sNetwork'):
                 props = node_template.get_properties()
+                network_name = props.get('name', None)
+                if network_name is None:
+                    raise ValueError('Missing name property for network node template {0}'.format(str(node_template)))
+
                 k8s['networks'][node_template.name] = {
-                    'name': self.normalize_name(resource_name + '_' + node_template.name)
+                    'name': network_name
                 }
 
         # get compute config
@@ -114,7 +118,7 @@ class ToscaK8sTranslator():
                                         raise ValueError('Compute references not-existent storage')
 
                                     podStorage.append({
-                                        "name": self.normalize_name(resource_name + '_' + targetNodeName),
+                                        "name": self.normalize_name(targetNodeName + '_' + resource_name),
                                         "size": storageDef['size'],
                                         "storageClassName": storageDef['storageClassName'],
                                         "mountPath": mount_location
@@ -126,10 +130,10 @@ class ToscaK8sTranslator():
 
                                     network_name = network.get('name', None)
                                     if network_name is None:
-                                        raise ValueError('Network node template {0} does not have a name'.format(network_name))
+                                        raise ValueError('Network node template {0} does not have a name'.format(str(targetNodeName)))
                                     else:
                                         podNetworks.append({
-                                            "name": network_name
+                                            "name": network_name.value
                                         })
                         else:
                             pass
@@ -137,7 +141,7 @@ class ToscaK8sTranslator():
             if(node_type == 'accanto.nodes.K8sCompute'):
                 props = node_template.get_properties()
                 k8s['pods'].append({
-                    'name': self.normalize_name(resource_name + '_' + node_template.name),
+                    'name': self.normalize_name(node_template.name + '_' + resource_name),
                     'image': self.get_prop_value(props, 'image'),
                     'container_port': self.get_prop_value(props, 'container_port'),
                     'storage': podStorage,
