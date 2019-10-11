@@ -1,0 +1,19 @@
+---
+application:
+  port: 8294
+
+jobqueue:
+  replication_factor: 1
+  num_partitions: 1
+  config:
+    retention_ms: 86400000
+    file_delete_delay_ms: 86400000
+
+messaging:
+  connection_address: kafka:9092
+
+k8s:
+  tmpdir: /var/k8svd/
+
+infrastructure:
+  async_messaging_enabled: False
