@@ -1,7 +1,7 @@
 import yaml
 
 class KubeConfig():
-    def __init__(self, tmppath, name, k8sServer, k8sToken):
+    def __init__(self, tmppath, name, k8sServer, k8sToken, certificate_authority_data, client_certificate_data, client_key_data):
         self.tmppath = tmppath
         self.name = name
         # construct kubeconfig file from deployment location properties
@@ -11,7 +11,8 @@ class KubeConfig():
                 "name": "mycluster",
                 "cluster": {
                     # TODO assume insecure for now
-                    "insecure-skip-tls-verify": True,
+                    #"insecure-skip-tls-verify": True,
+                    "certificate-authority-data": certificate_authority_data,
                     "server": k8sServer
                 }
             }],
@@ -28,7 +29,9 @@ class KubeConfig():
             "users": [{
                 "name": "ald-user",
                 "user": {
-                    "token": k8sToken
+                    "token": k8sToken,
+                    "client-certificate-data": client_certificate_data,
+                    "client-key-data": client_key_data
                 }
             }]
         }

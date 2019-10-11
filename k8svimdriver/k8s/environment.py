@@ -55,7 +55,8 @@ class K8sDeploymentLocation():
 
     def createKubeConfig(self, deployment_location):
       dl_properties = deployment_location['properties']
-      return KubeConfig(self.k8s_properties.tmpdir, deployment_location['name'], dl_properties[K8S_SERVER_PROP], dl_properties[K8S_TOKEN_PROP]).write()
+
+      return KubeConfig(self.k8s_properties.tmpdir, deployment_location['name'], dl_properties[K8S_SERVER_PROP], dl_properties[K8S_TOKEN_PROP], dl_properties[K8_CERT_AUTH_DATA_PROP], dl_properties[K8_CLIENT_CERT_DATA_PROP], dl_properties[K8_CLIENT_KEY_DATA_PROP]).write()
 
     def init_pod_watcher(self):
         self.pod_watcher = threading.Thread(target=self.pod_watcher_worker, args=())
@@ -148,8 +149,8 @@ class K8sDeploymentLocation():
                     finally:
                         logging_context.clear()
         except Exception:
-            logger.exception("Unexpected exception watching pods")
-            self.init_pod_watcher()
+            logger.exception("Unexpected exception watching pods, re-initializing")
+            self.pod_watcher_worker()
 
     def storage_watcher_worker(self):
         logger.debug('Monitoring storage')
