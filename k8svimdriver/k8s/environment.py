@@ -13,10 +13,10 @@ from threading import Thread
 logger = logging.getLogger(__name__)
 
 K8S_SERVER_PROP = 'k8s-server'
-K8_USERNAME = 'k8s-username'
-K8_CERT_AUTH_DATA_PROP = 'certificate-authority-data'
-K8_CLIENT_CERT_DATA_PROP = 'client-certificate-data'
-K8_CLIENT_KEY_DATA_PROP = 'client-key-data'
+K8S_USERNAME = 'k8s-username'
+K8S_CERT_AUTH_DATA_PROP = 'k8s-certificate-authority-data'
+K8S_CLIENT_CERT_DATA_PROP = 'k8s-client-certificate-data'
+K8S_CLIENT_KEY_DATA_PROP = 'k8s-client-key-data'
 K8S_TOKEN_PROP = 'k8s-token'
 K8S_NAMESPACE = "k8s-namespace"
 REGISTRY_URI_PROP = 'registry_uri'
@@ -55,8 +55,7 @@ class K8sDeploymentLocation():
 
     def createKubeConfig(self, deployment_location):
       dl_properties = deployment_location['properties']
-
-      return KubeConfig(self.k8s_properties.tmpdir, deployment_location['name'], dl_properties[K8S_SERVER_PROP], dl_properties[K8S_TOKEN_PROP], dl_properties[K8_CERT_AUTH_DATA_PROP], dl_properties[K8_CLIENT_CERT_DATA_PROP], dl_properties[K8_CLIENT_KEY_DATA_PROP]).write()
+      return KubeConfig(self.k8s_properties.tmpdir, deployment_location['name'], dl_properties[K8S_SERVER_PROP], dl_properties.get(K8S_TOKEN_PROP, None), dl_properties.get(K8S_CERT_AUTH_DATA_PROP, None), dl_properties.get(K8S_CLIENT_CERT_DATA_PROP, None), dl_properties.get(K8S_CLIENT_KEY_DATA_PROP, None)).write()
 
     def init_pod_watcher(self):
         self.pod_watcher = threading.Thread(target=self.pod_watcher_worker, args=())

@@ -4,7 +4,15 @@ class KubeConfig():
     def __init__(self, tmppath, name, k8sServer, k8sToken, certificate_authority_data, client_certificate_data, client_key_data):
         self.tmppath = tmppath
         self.name = name
+
         # construct kubeconfig file from deployment location properties
+        user = {
+            "client-certificate-data": client_certificate_data,
+            "client-key-data": client_key_data
+        }
+        if k8sToken is not None:
+            user['token'] = k8sToken
+
         self.kubeConfig = {
             "apiVersion": "v1",
             "clusters": [{
@@ -28,11 +36,7 @@ class KubeConfig():
             "preferences": {},
             "users": [{
                 "name": "ald-user",
-                "user": {
-                    "token": k8sToken,
-                    "client-certificate-data": client_certificate_data,
-                    "client-key-data": client_key_data
-                }
+                "user": user
             }]
         }
 
