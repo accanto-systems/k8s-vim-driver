@@ -1,14 +1,15 @@
 import uuid, yaml, json, sys, threading, logging
-from k8svimdriver.k8s.cache import DeploymentLocationCache
+from threading import Thread
 from kubernetes import client, config, watch
-from kubernetes.client.rest import ApiException
+from kubernetes.client.rest import ApiException as K8sApiException
 from ignition.model.infrastructure import InfrastructureTask
 from ignition.model.failure import FailureDetails, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_INFRASTRUCTURE_ERROR, FAILURE_CODE_UNKNOWN, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_RESOURCE_NOT_FOUND, FAILURE_CODE_RESOURCE_ALREADY_EXISTS
 from ignition.service.framework import Service, Capability, interface
 from ignition.service.logging import logging_context, LM_HTTP_HEADER_PREFIX, LM_HTTP_HEADER_TXNID, LM_HTTP_HEADER_PROCESS_ID
-from k8svimdriver.model.kubeconfig import KubeConfig
 from ignition.model.infrastructure import STATUS_IN_PROGRESS, STATUS_UNKNOWN, STATUS_FAILED, STATUS_COMPLETE, InfrastructureTask, CreateInfrastructureResponse
-from threading import Thread
+from ignition.api.exceptions import ApiException
+from k8svimdriver.k8s.cache import DeploymentLocationCache
+from k8svimdriver.model.kubeconfig import KubeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,9 @@ K8S_TOKEN_PROP = 'k8s-token'
 K8S_NAMESPACE = "k8s-namespace"
 REGISTRY_URI_PROP = 'registry_uri'
 
+class InvalidDeploymentLocationException(ApiException):
+    status_code = 400
+
 class K8sDeploymentLocation():
     def __init__(self, deployment_location, k8s_properties, inf_messaging_service):
         self.k8s_properties = k8s_properties
@@ -30,20 +34,20 @@ class K8sDeploymentLocation():
 
         self.__name = deployment_location.get('name')
         if self.__name is None:
-            raise ValueError('Deployment Location managed by the K8s VIM Driver must have a name')
+            raise InvalidDeploymentLocationException('Deployment Location managed by the K8s VIM Driver must have a name')
 
         dl_properties = deployment_location.get('properties', {})
         if dl_properties is None:
-            raise ValueError('Deployment Location properties are missing')
+            raise InvalidDeploymentLocationException('Deployment Location properties are missing')
 
         k8sNamespace = dl_properties.get(K8S_NAMESPACE, None)
         if k8sNamespace is None or k8sNamespace == '':
-            raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_NAMESPACE))
+            raise InvalidDeploymentLocationException('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_NAMESPACE))
         self.__k8sNamespace = k8sNamespace
 
         k8sServer = dl_properties.get(K8S_SERVER_PROP, None)
         if k8sServer is None or k8sServer == '':
-            raise ValueError('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_SERVER_PROP))
+            raise InvalidDeploymentLocationException('Deployment Location managed by the K8s VIM Driver must specify a property value for \'{0}\''.format(K8S_SERVER_PROP))
         self.__k8sServer = k8sServer
 
         self.kubeconfig_file = self.createKubeConfig(deployment_location)
@@ -135,7 +139,7 @@ class K8sDeploymentLocation():
                                                     if net_name is not None and len(net_ips) > 0:
                                                         if net_name == k8s_prop_name:
                                                             outputs[output_prop_name] = net_ips[0]
-                                except ApiException as e:
+                                except K8sApiException as e:
                                     # ok
                                     if e.status == 404:
                                         logger.info("Unable to find cm for infrastructure id {0}".format(infrastructure_id))
@@ -190,7 +194,7 @@ class K8sDeploymentLocation():
                 self.create_pod(pod_name, image, container_port, infrastructure_id, storage, networks)
 
             self.create_config_map_for_outputs(pod_name, infrastructure_id, k8s.get('outputs', {}))
-        except ApiException as e:
+        except K8sApiException as e:
             if e.status == 409:
                 logger.error('K8s exception1' + str(e))
                 self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, STATUS_FAILED, FailureDetails(FAILURE_CODE_RESOURCE_ALREADY_EXISTS, "Resource already exists"), {}))
