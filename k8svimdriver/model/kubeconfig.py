@@ -18,7 +18,6 @@ class KubeConfig():
             "clusters": [{
                 "name": "mycluster",
                 "cluster": {
-                    # TODO assume insecure for now
                     #"insecure-skip-tls-verify": True,
                     "certificate-authority-data": certificate_authority_data,
                     "server": k8sServer
