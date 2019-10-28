@@ -69,88 +69,90 @@ class K8sDeploymentLocation():
     def pod_watcher_worker(self):
         try:
             logger.info('Monitoring pods')
-            for item in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, timeout_seconds=5):
-                event_type = item['type']
-                pod = item['object']
+            # TODO loop until close condition is set
+            while True:
+                # timeout quickly to avoid stale resources
+                for item in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, timeout_seconds=5):
+                    event_type = item['type']
+                    pod = item['object']
 
-                pod_name = pod.metadata.name
-                labels = pod.metadata.labels
-                infrastructure_id = labels.get('infrastructure_id', None)
-                if infrastructure_id is not None:
-                    logging_context.set_from_dict(labels)
-                    try:
-                        logger.debug('Got pod event {0}'.format(item))
+                    pod_name = pod.metadata.name
+                    labels = pod.metadata.labels
+                    infrastructure_id = labels.get('infrastructure_id', None)
+                    if infrastructure_id is not None:
+                        logging_context.set_from_dict(labels)
+                        try:
+                            logger.debug('Got pod event {0}'.format(item))
 
-                        outputs = {}
-                        phase = pod.status.phase
-                        podStatus = self.__build_pod_status(event_type, pod, outputs)
-                        request_type = 'CREATE'
-                        failure_details = None
-                        outputs = {
-                            "host": pod.metadata.name
-                        }
+                            outputs = {}
+                            phase = pod.status.phase
+                            podStatus = self.__build_pod_status(event_type, pod, outputs)
+                            request_type = 'CREATE'
+                            failure_details = None
+                            outputs = {
+                                "host": pod.metadata.name
+                            }
 
-                        if(phase is None):
-                            status = STATUS_UNKNOWN
-                        elif(phase in ['Pending']):
-                            container_statuses = pod.status.container_statuses
-                            if container_statuses is not None and len(container_statuses) > 0:
-                                waiting = container_statuses[0].state.waiting
-                                if(waiting is not None):
-                                    if(waiting.reason in ['ErrImagePull', 'ImagePullBackOff']):
-                                        status = STATUS_FAILED
-                                        failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, 'ErrImagePull')
+                            if(phase is None):
+                                status = STATUS_UNKNOWN
+                            elif(phase in ['Pending']):
+                                container_statuses = pod.status.container_statuses
+                                if container_statuses is not None and len(container_statuses) > 0:
+                                    waiting = container_statuses[0].state.waiting
+                                    if(waiting is not None):
+                                        if(waiting.reason in ['ErrImagePull', 'ImagePullBackOff']):
+                                            status = STATUS_FAILED
+                                            failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, 'ErrImagePull')
+                                        else:
+                                            status = STATUS_IN_PROGRESS
                                     else:
                                         status = STATUS_IN_PROGRESS
                                 else:
                                     status = STATUS_IN_PROGRESS
+                            elif(phase in ['Running']):
+                                status = STATUS_COMPLETE
+                            elif(phase in ['Failed']):
+                                status = STATUS_FAILED
+                                failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, podStatus.status_reason)
                             else:
-                                status = STATUS_IN_PROGRESS
-                        elif(phase in ['Running']):
-                            status = STATUS_COMPLETE
-                        elif(phase in ['Failed']):
-                            status = STATUS_FAILED
-                            failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, podStatus.status_reason)
-                        else:
-                            status = STATUS_UNKNOWN
+                                status = STATUS_UNKNOWN
 
-                        if status in [STATUS_COMPLETE, STATUS_FAILED]:
-                            if status == STATUS_COMPLETE:
-                                try:
-                                    # try to find the ConfigMap that contains information on output property mappings
-                                    cm = self.coreV1Api().read_namespaced_config_map(infrastructure_id, self.namespace())
-                                    logger.info("Got ConfigMap {0} for infrastructure_id {1}".format(str(cm), infrastructure_id))
-                                    if cm is not None:
-                                        for output_prop_name, k8s_key in cm.data.items():
-                                            logger.info("Output: {0}={1}".format(output_prop_name, k8s_key))
-                                            if k8s_key.startswith('network.'):
-                                                k8s_prop_name = k8s_key[len('network.'):]
-                                                logger.info("k8s_prop_name: {0}".format(k8s_prop_name))
+                            if status in [STATUS_COMPLETE, STATUS_FAILED]:
+                                if status == STATUS_COMPLETE:
+                                    try:
+                                        # try to find the ConfigMap that contains information on output property mappings
+                                        cm = self.coreV1Api().read_namespaced_config_map(infrastructure_id, self.namespace())
+                                        logger.info("Got ConfigMap {0} for infrastructure_id {1}".format(str(cm), infrastructure_id))
+                                        if cm is not None:
+                                            for output_prop_name, k8s_key in cm.data.items():
+                                                logger.info("Output: {0}={1}".format(output_prop_name, k8s_key))
+                                                if k8s_key.startswith('network.'):
+                                                    k8s_prop_name = k8s_key[len('network.'):]
+                                                    logger.info("k8s_prop_name: {0}".format(k8s_prop_name))
 
-                                            annotations = pod.metadata.annotations
-                                            networks_status_str = annotations.get('k8s.v1.cni.cncf.io/networks-status', None)
-                                            logger.info('networks_status_str: {0}'.format(str(networks_status_str)))
-                                            if networks_status_str is not None:
-                                                networks_status = json.loads(networks_status_str)
-                                                for network_status in networks_status:
-                                                    net_name = network_status.get('name', None)
-                                                    net_ips = network_status.get('ips', {})
-                                                    logger.info('net_name {0}, net_ips {1}'.format(net_name, str(net_ips)))
-                                                    if net_name is not None and len(net_ips) > 0:
-                                                        if net_name == k8s_prop_name:
-                                                            outputs[output_prop_name] = net_ips[0]
-                                except K8sApiException as e:
-                                    # ok
-                                    if e.status == 404:
-                                        logger.info("Unable to find cm for infrastructure id {0}".format(infrastructure_id))
+                                                annotations = pod.metadata.annotations
+                                                networks_status_str = annotations.get('k8s.v1.cni.cncf.io/networks-status', None)
+                                                logger.info('networks_status_str: {0}'.format(str(networks_status_str)))
+                                                if networks_status_str is not None:
+                                                    networks_status = json.loads(networks_status_str)
+                                                    for network_status in networks_status:
+                                                        net_name = network_status.get('name', None)
+                                                        net_ips = network_status.get('ips', {})
+                                                        logger.info('net_name {0}, net_ips {1}'.format(net_name, str(net_ips)))
+                                                        if net_name is not None and len(net_ips) > 0:
+                                                            if net_name == k8s_prop_name:
+                                                                outputs[output_prop_name] = net_ips[0]
+                                    except K8sApiException as e:
+                                        # ok
+                                        if e.status == 404:
+                                            logger.info("Unable to find cm for infrastructure id {0}".format(infrastructure_id))
 
-                            inf_task = InfrastructureTask(infrastructure_id, infrastructure_id, status, failure_details, outputs)
-                            logger.info('Sending infrastructure response {0}'.format(str(inf_task)))
+                                inf_task = InfrastructureTask(infrastructure_id, infrastructure_id, status, failure_details, outputs)
+                                logger.info('Sending infrastructure response {0}'.format(str(inf_task)))
 
-                            self.inf_messaging_service.send_infrastructure_task(inf_task)
-                            return True
-                    finally:
-                        logging_context.clear()
+                                self.inf_messaging_service.send_infrastructure_task(inf_task)
+                        finally:
+                            logging_context.clear()
         except Exception:
             logger.exception("Unexpected exception watching pods, re-initializing")
             self.pod_watcher_worker()

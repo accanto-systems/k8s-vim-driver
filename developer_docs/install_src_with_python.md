@@ -61,4 +61,4 @@ k8svd-uwsgi
 
 # Access Swagger UI
 
-The Swagger UI can be found at `http://your_host:8294/api/lifecycle/ui` e.g. `http://localhost:8294/api/lifecycle/ui`
+The Swagger UI can be found at `http://your_host:8294/api/infrastructure/ui` e.g. `http://localhost:8294/api/infrastructure/ui`
