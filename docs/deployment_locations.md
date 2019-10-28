@@ -14,6 +14,7 @@ The deployment location is defined by the following properties:
 | k8s-client-certificate-data     | -       | Y - for Kubeadm (see below) | client certificate (from kubeconfig file)
 | k8s-client-key-data     | -       | Y - for Kubeadm (see below) | client key (from kubeconfig file)
 | k8s-token     | -       | Y - for Microk8s (see below) | access token (from kubeconfig file)
+| k8s-namespace | -       | Y | The K8s namespace in which K8s compute instances (pods) will run
 
 ## MicroK8s
 
