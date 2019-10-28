@@ -208,7 +208,8 @@ class K8sDeploymentLocation():
             self.inf_messaging_service.send_infrastructure_task(InfrastructureTask(infrastructure_id, infrastructure_id, STATUS_FAILED, FailureDetails(FAILURE_CODE_INTERNAL_ERROR, str(e)), {}))
 
     def create_infrastructure(self, infrastructure_id, k8s):
-        # TODO use Ignition job queue to queue these request up
+        # Run in a thread so the driver can respond ASAP
+        # TODO use Ignition job queue to queue these requests up
         worker = Thread(target=self.create_infrastructure_impl, args=(infrastructure_id, k8s,))
         # force the driver to wait for any create infrastructure threads to finish before exiting
         worker.setDaemon(False)
