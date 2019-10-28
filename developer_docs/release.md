@@ -37,6 +37,12 @@ Create a TAR of the docs directory:
 tar -cvzf k8s-vim-driver-<release version number>-docs.tgz docs/ --transform s/docs/k8s-vim-driver-<release version number>-docs/
 ```
 
+On a Mac:
+
+```
+tar -cvz -s '/docs/k8s-vim-driver-<release version number>-docs/' -f k8s-vim-driver-<release version number>-docs.tgz docs/
+```
+
 ## 4. Build Docker Image
 
 4.1. Move the whl now in `dist` to the `docker/whls` directory (ensure no additional whls are in the docker directory)
