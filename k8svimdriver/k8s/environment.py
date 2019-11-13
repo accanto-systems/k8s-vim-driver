@@ -142,6 +142,9 @@ class K8sDeploymentLocation():
                                                         if net_name is not None and len(net_ips) > 0:
                                                             if net_name == k8s_prop_name:
                                                                 outputs[output_prop_name] = net_ips[0]
+                                                else:
+                                                    logger.info('network status not found for output property {0}'.format(output_prop_name))
+
                                     except K8sApiException as e:
                                         # ok
                                         if e.status == 404:
@@ -170,6 +173,9 @@ class K8sDeploymentLocation():
     def coreV1Api(self):
         return client.CoreV1Api(self.k8s_client)
 
+    def customApi(self):
+        return client.CustomObjectsApi(self.k8s_client)
+
     def create_infrastructure_impl(self, infrastructure_id, k8s):
         try:
             logger.info('storage=' + str(k8s.get('storage')))
@@ -183,6 +189,14 @@ class K8sDeploymentLocation():
                     properties['hostpath'] = storage.get('hostpath', None)
 
                 self.create_storage(storage_name, storageSize, storageClassName, infrastructure_id, properties)
+
+            for _, network in k8s.get('networks', {}).items():
+                network_name = network.get('name', None)
+                bridge = network.get('bridge', None)
+                subnet = network.get('subnet', None)
+                range_start = network.get('range_start', None)
+                range_end = network.get('range_end', None)
+                self.create_network(infrastructure_id, network_name, bridge, subnet, range_start, range_end)
 
             # TODO mapping storageClassName to pods - just have one storage class?
             for pod in k8s.get('pods', []):
@@ -281,6 +295,44 @@ class K8sDeploymentLocation():
                 "k8s.v1.cni.cncf.io/networks": networks_as_string,
             }),
             spec=spec)
+
+    def create_network(self, infrastructure_id, name, bridge, subnet, range_start, range_end):
+        logger.info("Creating network {0} {1} {2} {3} {4} {5}".format(infrastructure_id, name, bridge, subnet, range_start, range_end))
+
+        # we support Multus networks only at present
+        config = {
+            "name": name,
+            "type": "bridge",
+            "bridge": bridge,
+            "isDefaultGateway": True,
+            "forceAddress": False,
+            "ipMasq": True,
+            "hairpinMode": True,
+            "ipam": {
+                "type": "host-local",
+                "subnet": subnet,
+                "rangeStart": range_start,
+                "rangeEnd": range_end
+            }
+        }
+
+        body = {
+            "apiVersion": "k8s.cni.cncf.io/v1",
+            "kind": "NetworkAttachmentDefinition",
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "infrastructure_id": infrastructure_id
+                }
+            },
+            "spec": {
+                "config": json.dumps(config)
+            }
+        }
+
+        logger.info('create network, body = {0}'.format(json.dumps(body)))
+
+        self.customApi().create_namespaced_custom_object(group="k8s.cni.cncf.io", version="v1", namespace=self.namespace(), plural="network-attachment-definitions", body=body)
 
     def create_pod(self, podName, image, container_port, infrastructure_id, storage, networks):
         logger.info("pod storage="+str(storage))

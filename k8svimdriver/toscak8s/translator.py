@@ -12,10 +12,14 @@ class ToscaK8sTranslator():
         return ToscaTemplate(None, inputs, False, tosca)
 
     def get_prop_value(self, props, name):
-        if(isinstance(props[name].value, GetInput)):
-            return props[name].value.result()
+        prop = props.get(name, None)
+        if prop is not None:
+            if isinstance(prop.value, GetInput):
+                return prop.value.result()
+            else:
+                return prop.value
         else:
-            return props[name].value
+            return prop
 
     def normalize_name(self, name):
         return name.replace("_", "-")
@@ -77,12 +81,28 @@ class ToscaK8sTranslator():
                 }
             elif(node_type == 'accanto.nodes.K8sNetwork'):
                 props = node_template.get_properties()
-                network_name = props.get('name', None)
-                if network_name is None:
+                name = self.get_prop_value(props, "name")
+                if name is None:
                     raise ValueError('Missing name property for network node template {0}'.format(str(node_template)))
+                bridge = self.get_prop_value(props, "bridge")
+                if bridge is None:
+                    raise ValueError('Missing bridge property for network node template {0}'.format(str(node_template)))
+                subnet = self.get_prop_value(props, "subnet")
+                if subnet is None:
+                    raise ValueError('Missing subnet property for network node template {0}'.format(str(node_template)))
+                range_start = self.get_prop_value(props, "range_start")
+                if range_start is None:
+                    raise ValueError('Missing range_start property for network node template {0}'.format(str(node_template)))
+                range_end = self.get_prop_value(props, "range_end")
+                if range_end is None:
+                    raise ValueError('Missing range_end property for network node template {0}'.format(str(node_template)))
 
                 k8s['networks'][node_template.name] = {
-                    'name': network_name
+                    'name': name,
+                    'bridge': bridge,
+                    'subnet': subnet,
+                    'range_start': range_start,
+                    'range_end': range_end
                 }
 
         # get compute config
@@ -133,7 +153,7 @@ class ToscaK8sTranslator():
                                         raise ValueError('Network node template {0} does not have a name'.format(str(targetNodeName)))
                                     else:
                                         podNetworks.append({
-                                            "name": network_name.value
+                                            "name": network_name
                                         })
                         else:
                             pass

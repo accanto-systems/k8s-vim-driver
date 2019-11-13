@@ -25,6 +25,22 @@ node_types:
         type: string
         description: the name of the K8s network (must already exist)
         required: true
+      bridge:
+        type: string
+        description: the name of the bridge e.g. "br-voice"
+        required: true
+      subnet:
+        type: string
+        description: the network subnet e.g. "10.0.10.0/24"
+        required: true
+      range_start:
+       type: string
+       description: the subnet range start e.g. "10.0.10.55"
+       required: true
+      range_end:
+         type: string
+         description: the subnet range end e.g. "10.0.10.100"
+        required: true
     attributes:
       address:
         type: string
