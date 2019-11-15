@@ -1,6 +1,6 @@
 name: k8s-vim-driver
-version: 0.2.0
-appVersion: 0.2.0
+version: 0.3.0.dev0
+appVersion: 0.3.0.dev0
 apiVersion: v1
 description: A Helm chart for the K8s VIM Driver
 keywords:
