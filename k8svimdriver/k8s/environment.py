@@ -2,6 +2,7 @@ import uuid, yaml, json, sys, threading, logging
 from threading import Thread
 from kubernetes import client, config, watch
 from kubernetes.client.rest import ApiException as K8sApiException
+from kubernetes.client import V1DeleteOptions
 from ignition.model.infrastructure import InfrastructureTask
 from ignition.model.failure import FailureDetails, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_INFRASTRUCTURE_ERROR, FAILURE_CODE_UNKNOWN, FAILURE_CODE_INTERNAL_ERROR, FAILURE_CODE_RESOURCE_NOT_FOUND, FAILURE_CODE_RESOURCE_ALREADY_EXISTS
 from ignition.service.framework import Service, Capability, interface
@@ -331,8 +332,14 @@ class K8sDeploymentLocation():
         }
 
         logger.info('create network, body = {0}'.format(json.dumps(body)))
-
-        self.customApi().create_namespaced_custom_object(group="k8s.cni.cncf.io", version="v1", namespace=self.namespace(), plural="network-attachment-definitions", body=body)
+        try:
+            self.customApi().create_namespaced_custom_object(group="k8s.cni.cncf.io", version="v1", namespace=self.namespace(), plural="network-attachment-definitions", body=body)
+        except K8sApiException as e:
+            if e.reason == 'Conflict':
+                # this is ok, assume the network already exists
+                pass
+            else:
+                raise
 
     def create_pod(self, podName, image, container_port, infrastructure_id, storage, networks):
         logger.info("pod storage="+str(storage))
@@ -476,6 +483,7 @@ class K8sDeploymentLocation():
     def delete_infrastructure(self, infrastructure_id):
         self.delete_pod_with_infrastructure_id(infrastructure_id)
         self.delete_storage_with_infrastructure_id(infrastructure_id)
+        self.delete_networks_with_infrastructure_id(infrastructure_id)
 
     def delete_pod_with_infrastructure_id(self, infrastructure_id):
         v1 = self.coreV1Api()
@@ -532,10 +540,19 @@ class K8sDeploymentLocation():
         else:
             return None
 
+    def delete_networks_with_infrastructure_id(self, infrastructure_id):
+        customApi = self.customApi()
+        network_list = customApi.list_namespaced_custom_object(group="k8s.cni.cncf.io", version="v1", namespace=self.namespace(), plural="network-attachment-definitions", label_selector='infrastructure_id={}'.format(infrastructure_id), watch=False)
+        for network in network_list['items']:
+            print('Deleting network='+str(network))
+            # TODO handle errors
+            api_response = customApi.delete_namespaced_custom_object(group="k8s.cni.cncf.io", version="v1", namespace=self.namespace(), plural="network-attachment-definitions", name=network['metadata']['name'], body=V1DeleteOptions())
+
     def delete_storage_with_infrastructure_id(self, infrastructure_id):
         v1 = self.coreV1Api()
         storage_list = v1.list_namespaced_persistent_volume_claim(namespace=self.namespace(), label_selector='infrastructure_id={}'.format(infrastructure_id))
         for storage in storage_list.items:
+            # TODO handle errors
             api_response = v1.delete_namespaced_persistent_volume_claim(namespace=self.namespace(), name=storage.metadata.name)
 
     def delete_storage(self, name):
