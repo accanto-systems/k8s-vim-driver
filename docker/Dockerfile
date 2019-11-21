@@ -24,7 +24,8 @@ USER k8svd
 
 COPY --chown=k8svd:k8svd whls/*.whl /home/k8svd/whls/
 
-RUN for i in /home/k8svd/whls/*.whl; do pip install --no-warn-script-location --user "$i"; done
+RUN for i in /home/k8svd/whls/ignition*.whl; do if [ "$i" != "/home/k8svd/whls/ignition*.whl" ]; then pip install --no-warn-script-location --user "$i"; fi done \
+ && for i in /home/k8svd/whls/*.whl; do pip install --no-warn-script-location --user "$i"; done
 
 USER root
 
