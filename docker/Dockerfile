@@ -15,7 +15,7 @@ RUN addgroup -S k8svd \
  && adduser -S k8svd -G k8svd -u 100 \
  && mkdir -p /var/k8svd \
  && chown -R k8svd:k8svd /var/k8svd \
- && apk add --no-cache bash \
+ && apk add --no-cache bash binutils libc-dev \
  # These packages need to be installed so that we can install the Python dependencies.
  # We make this virtual so that we can remove them later
  && apk add --no-cache --virtual .build-deps gcc musl-dev libffi-dev openssl-dev python3-dev make git
