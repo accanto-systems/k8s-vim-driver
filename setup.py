@@ -21,10 +21,10 @@ setup(
         'ignition-framework{0}'.format(_pkg_info['ignition-version']),
         'heat-translator>=1.3.0,<2.0',
         'tosca-parser>=1.4.0,<2.0',
-        'kubernetes>=9.0.0',
-        'python-common-cache>=0.1',
-        'uwsgi>=2.0.18',
-        'gunicorn>=19.9.0'
+        'kubernetes>=9.0.0,<10.0',
+        'python-common-cache>=0.1,<1.0',
+        'uwsgi>=2.0.18,<3.0',
+        'gunicorn>=19.9.0,<20.0'
     ],
     entry_points='''
         [console_scripts]
