@@ -1,6 +1,6 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-K8s VIM Driver is an [LM](http://servicelifecyclemanager.com/2.1.0/) [VIM driver](http://servicelifecyclemanager.com/2.1.0/reference/lm-api/api-definition/vim-drivers/).
+K8s VIM Driver is an [LM VIM driver](http://servicelifecyclemanager.com/2.1.0/reference/lm-api/api-definition/vim-drivers/).
 
 ## Install
 
@@ -8,6 +8,7 @@ K8s VIM Driver is an [LM](http://servicelifecyclemanager.com/2.1.0/) [VIM driver
 
 ## Using the Driver
 
+- [Onboarding in to LM](./docs/onboarding.md) - details how to onboard the driver in to LM
 - [Deployment Locations](./docs/deployment_locations.md) - details the properties expected by this driver on a Deployment Location
 - [Supported Tosca](./docs/supported_tosca.md) - details on supported infrastructure types
 
