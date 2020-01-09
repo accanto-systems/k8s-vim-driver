@@ -10,6 +10,8 @@ Download and install the chart using the helm CLI:
 helm install k8s-vim-driver-<version>.tgz --name k8s-vim-driver
 ```
 
+helm install --name k8s-vim-driver https://github.com/accanto-systems/k8s-vim-driver/releases/download/v0.1.0/k8s-vim-driver-0.1.0.tgz
+
 The above installation will expect Kafka to be running in the same Kubernetes namespace with name `foundation-kafka`, which is the default installed by Stratoss&trade; Lifecycle Manager. If different, override the Kafka address:
 
 ```

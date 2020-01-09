@@ -70,10 +70,14 @@ class K8sDeploymentLocation():
     def pod_watcher_worker(self):
         try:
             logger.info('Monitoring pods')
+            last_seen_version = None
             # TODO loop until close condition is set
             while True:
                 # timeout quickly to avoid stale resources
-                for item in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, timeout_seconds=5):
+                pod_stream = self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, resource_version=last_seen_version, timeout_seconds=5):
+                # track where we are up to in the pod events stream
+                last_seen_version = pod_stream.metadata.resource_version
+                for item in pod_stream:
                     event_type = item['type']
                     pod = item['object']
 
@@ -94,9 +98,9 @@ class K8sDeploymentLocation():
                                 "host": pod.metadata.name
                             }
 
-                            if(phase is None):
+                            if phase is None:
                                 status = STATUS_UNKNOWN
-                            elif(phase in ['Pending']):
+                            elif phase in ['Pending']:
                                 container_statuses = pod.status.container_statuses
                                 if container_statuses is not None and len(container_statuses) > 0:
                                     waiting = container_statuses[0].state.waiting
@@ -110,9 +114,9 @@ class K8sDeploymentLocation():
                                         status = STATUS_IN_PROGRESS
                                 else:
                                     status = STATUS_IN_PROGRESS
-                            elif(phase in ['Running']):
+                            elif phase in ['Running']:
                                 status = STATUS_COMPLETE
-                            elif(phase in ['Failed']):
+                            elif phase in ['Failed']:
                                 status = STATUS_FAILED
                                 failure_details = FailureDetails(FAILURE_CODE_INFRASTRUCTURE_ERROR, podStatus.status_reason)
                             else:
