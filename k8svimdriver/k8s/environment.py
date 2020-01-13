@@ -74,7 +74,7 @@ class K8sDeploymentLocation():
             # TODO loop until close condition is set
             while True:
                 # timeout quickly to avoid stale resources
-                pod_stream = self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, resource_version=last_seen_version, timeout_seconds=5):
+                pod_stream = self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, resource_version=last_seen_version, timeout_seconds=5)
                 # track where we are up to in the pod events stream
                 last_seen_version = pod_stream.metadata.resource_version
                 for item in pod_stream:
