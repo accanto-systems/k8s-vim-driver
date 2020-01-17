@@ -7,6 +7,15 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+{{- if .Values.app.config.security.ssl.enabled }}
+  - port: 8394
+    targetPort: 8394
+{{- if eq .Values.service.type "NodePort" }}
+    nodePort: {{ .Values.service.nodePort }}
+{{- end }}
+    protocol: TCP
+    name: https
+{{- else }}
   - port: 8294
     targetPort: 8294
 {{- if eq .Values.service.type "NodePort" }}
@@ -14,5 +23,6 @@ spec:
 {{- end }}
     protocol: TCP
     name: http
+{{- end }}
   selector:
     app: k8s-vim-driver

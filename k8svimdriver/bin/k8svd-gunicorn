@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
 
-gunicorn -w $NUM_PROCESSES -b :$DRIVER_PORT "k8svimdriver:create_wsgi_app()"
+if [[ $SSL_ENABLED == "True" ]]; then
+    SSL="--certfile /var/k8svd/certs/tls.crt --keyfile /var/k8svd/certs/tls.key"
+fi
+
+gunicorn -w $NUM_PROCESSES -b :$DRIVER_PORT $SSL "k8svimdriver:create_wsgi_app()"
