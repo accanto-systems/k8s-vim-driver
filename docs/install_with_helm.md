@@ -18,6 +18,8 @@ The above installation will expect Kafka to be running in the same Kubernetes na
 helm install k8s-vim-driver-<version>.tgz --name k8s-vim-driver --set app.config.override.messaging.connection_address=myhost:myport
 ```
 
+The driver runs with SSL enabled by default. The installation will generate a self-signed certificate and key by default, adding them to the Kubernetes secret "k8svd-tls". To use a custom certificate and key in your own secret, override the properties under "apps.config.security.ssl.secret".
+
 # Access Swagger UI
 
-The Swagger UI can be found at `http://your_host:31637/api/infrastructure/ui` e.g. `http://localhost:31637/api/infrastructure/ui`
+The Swagger UI can be found at `http://your_host:31637/api/infrastructure/ui` e.g. `https://localhost:31637/api/infrastructure/ui`

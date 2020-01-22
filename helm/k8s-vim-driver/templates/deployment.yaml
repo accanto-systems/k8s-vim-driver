@@ -26,6 +26,7 @@ spec:
           ports:
           - containerPort: 8294
             protocol: TCP
+            name: http
           envFrom:
           - configMapRef:
               name: k8s-vim-driver-env
@@ -35,7 +36,16 @@ spec:
           - name: config
             mountPath: /var/k8svd/k8s_config.yml
             subPath: k8s_config.yml
+          {{- if and .Values.app.config.security.ssl.enabled .Values.app.config.security.ssl.secret.name }}
+          - name: {{ .Values.app.config.security.ssl.secret.name }}
+            mountPath: /var/k8svd/certs
+          {{- end }}
       volumes:
       - name: config
         configMap:
           name: k8s-vim-driver
+      {{- if and .Values.app.config.security.ssl.enabled .Values.app.config.security.ssl.secret.name }}
+      - name: {{ .Values.app.config.security.ssl.secret.name }}
+        secret:
+          secretName: {{ .Values.app.config.security.ssl.secret.name }}
+      {{- end }}

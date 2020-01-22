@@ -70,24 +70,27 @@ class K8sDeploymentLocation():
     def pod_watcher_worker(self):
         try:
             logger.info('Monitoring pods')
-            last_seen_version = None
+
             # TODO loop until close condition is set
             while True:
-                # timeout quickly to avoid stale resources
-                pod_stream = self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, resource_version=last_seen_version, timeout_seconds=5)
-                # track where we are up to in the pod events stream
-                last_seen_version = pod_stream.metadata.resource_version
-                for item in pod_stream:
-                    event_type = item['type']
-                    pod = item['object']
+                last_seen_version = 0
+                # poll forever (timeout == 0)
+                for pod_event in self.watcher.stream(self.coreV1Api().list_pod_for_all_namespaces, resource_version=last_seen_version, timeout_seconds=0):
+                    event_type = pod_event['type']
+                    pod = pod_event['object']
+                    metadata = pod.metadata
 
-                    pod_name = pod.metadata.name
-                    labels = pod.metadata.labels
+                    if last_seen_version == 0:
+                        # track where we are up to in the pod events stream in case we have to restart
+                        last_seen_version = metadata.resource_version
+
+                    pod_name = metadata.name
+                    labels = metadata.labels
                     infrastructure_id = labels.get('infrastructure_id', None)
                     if infrastructure_id is not None:
                         logging_context.set_from_dict(labels)
                         try:
-                            logger.debug('Got pod event {0}'.format(item))
+                            logger.debug('Got pod event {0}'.format(pod_event))
 
                             outputs = {}
                             phase = pod.status.phase
@@ -395,8 +398,6 @@ class K8sDeploymentLocation():
         phase = pod.status.phase
         status_reason = None
         status = STATUS_UNKNOWN
-
-        # logger.debug('__build_pod_status {0} {1}'.format(request_type, pod))
 
         # if request_type == 'CREATE':
         if(phase is None):
