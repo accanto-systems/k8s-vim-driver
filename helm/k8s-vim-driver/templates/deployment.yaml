@@ -24,15 +24,9 @@ spec:
             # run as k8svd
             runAsUser: 100
           ports:
-          {{- if .Values.app.config.security.ssl.enabled }}
-          - containerPort: 8394
-            protocol: TCP
-            name: https
-          {{- else }}
           - containerPort: 8294
             protocol: TCP
             name: http
-          {{- end }}
           envFrom:
           - configMapRef:
               name: k8s-vim-driver-env
