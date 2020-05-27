@@ -1,5 +1,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+This driver has been superceded by https://github.com/accanto-systems/kubernetes-driver and is no longer maintained.
+
 K8s VIM Driver is an [LM VIM driver](http://servicelifecyclemanager.com/2.1.0/reference/lm-api/api-definition/vim-drivers/).
 
 ## Install
